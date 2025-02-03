@@ -1,0 +1,1700 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name"
+		},
+		"LS_BLOB_HUBSPOT": {
+			"type": "string"
+		},
+		"LS_AZURE_SQL": {
+			"type": "string"
+		},
+		"LS_REST_HUBSPOT_ANONYMOUS": {
+			"type": "string"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('factoryName'), '/MASTER_PL_HS_REST_TO_AZURE_SQL')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "Lookup_Source_ Config_JSON",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.00:10:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "JsonSource",
+								"storeSettings": {
+									"type": "AzureBlobStorageReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "JsonReadSettings"
+								}
+							},
+							"dataset": {
+								"referenceName": "DS_SRC_CONFIG_JSON",
+								"type": "DatasetReference"
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "Lookup - DIaaS Metadata_Excel",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.00:10:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "DelimitedTextSource",
+								"storeSettings": {
+									"type": "AzureBlobStorageReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								},
+								"formatSettings": {
+									"type": "DelimitedTextReadSettings"
+								}
+							},
+							"dataset": {
+								"referenceName": "DS_BLOB_TO_COLUMNS",
+								"type": "DatasetReference"
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "Filter_JSON _HubSpot",
+						"type": "Filter",
+						"dependsOn": [
+							{
+								"activity": "Lookup_Source_ Config_JSON",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('Lookup_Source_ Config_JSON').output.value",
+								"type": "Expression"
+							},
+							"condition": {
+								"value": "@and(equals(item().is_active,'1'),equals(item().source_name,'HubSpot'))",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "ForEach_HubSpot_Objects",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "Filter_Excel_HubSpot",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "Filter_JSON _HubSpot",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('Filter_Excel_HubSpot').output.value",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "Switch between load_type",
+									"type": "Switch",
+									"dependsOn": [
+										{
+											"activity": "variable_lookup _excel",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"on": {
+											"value": "@item().load_type",
+											"type": "Expression"
+										},
+										"cases": [
+											{
+												"value": "FL",
+												"activities": [
+													{
+														"name": "Execute_PL_HS_FL",
+														"type": "ExecutePipeline",
+														"dependsOn": [],
+														"policy": {
+															"secureInput": false
+														},
+														"userProperties": [],
+														"typeProperties": {
+															"pipeline": {
+																"referenceName": "PL_HS_FL_TO_AZURE_SQL",
+																"type": "PipelineReference"
+															},
+															"waitOnCompletion": true,
+															"parameters": {
+																"relative_url": {
+																	"value": "@item().relative_url_or_input_query",
+																	"type": "Expression"
+																},
+																"staging_schema": {
+																	"value": "@item().staging_schema_or_directory",
+																	"type": "Expression"
+																},
+																"staging_table": {
+																	"value": "@item().sink_object_name",
+																	"type": "Expression"
+																},
+																"load_type": {
+																	"value": "@item().load_type",
+																	"type": "Expression"
+																},
+																"raw_schema": {
+																	"value": "@item().raw_schema",
+																	"type": "Expression"
+																},
+																"raw_table": {
+																	"value": "@item().sink_object_name",
+																	"type": "Expression"
+																},
+																"source_object_name": {
+																	"value": "@item().source_object_name",
+																	"type": "Expression"
+																},
+																"kv_authorization": {
+																	"value": "@activity('Filter_JSON _HubSpot').output.value[0].source_config.authorization",
+																	"type": "Expression"
+																},
+																"server": {
+																	"value": "@activity('Filter_JSON _HubSpot').output.value[0].source_config.server",
+																	"type": "Expression"
+																},
+																"database": {
+																	"value": "@activity('Filter_JSON _HubSpot').output.value[0].source_config.database",
+																	"type": "Expression"
+																},
+																"username": {
+																	"value": "@activity('Filter_JSON _HubSpot').output.value[0].source_config.username",
+																	"type": "Expression"
+																},
+																"secretname": {
+																	"value": "@activity('Filter_JSON _HubSpot').output.value[0].source_config.secretname",
+																	"type": "Expression"
+																}
+															}
+														}
+													}
+												]
+											},
+											{
+												"value": "IL",
+												"activities": [
+													{
+														"name": "Execute_PL_HS_INC_LOAD",
+														"type": "ExecutePipeline",
+														"dependsOn": [],
+														"policy": {
+															"secureInput": false
+														},
+														"userProperties": [],
+														"typeProperties": {
+															"pipeline": {
+																"referenceName": "PL_HS_INC_LOAD_TO_AZURE_SQL",
+																"type": "PipelineReference"
+															},
+															"waitOnCompletion": true,
+															"parameters": {
+																"raw_schema": {
+																	"value": "@item().raw_schema",
+																	"type": "Expression"
+																},
+																"raw_table": {
+																	"value": "@item().sink_object_name",
+																	"type": "Expression"
+																},
+																"IL_field": {
+																	"value": "@item().incremental_fields",
+																	"type": "Expression"
+																},
+																"relative_url": {
+																	"value": "@item().relative_url_or_input_query",
+																	"type": "Expression"
+																},
+																"staging_schema": {
+																	"value": "@item().staging_schema_or_directory",
+																	"type": "Expression"
+																},
+																"staging_table": {
+																	"value": "@item().sink_object_name",
+																	"type": "Expression"
+																},
+																"load_type": {
+																	"value": "@item().load_type",
+																	"type": "Expression"
+																},
+																"sink_type": {
+																	"value": "@item().sink_type",
+																	"type": "Expression"
+																},
+																"source_object_name": {
+																	"value": "@item().source_object_name",
+																	"type": "Expression"
+																},
+																"kv_authorization": {
+																	"value": "@activity('Filter_JSON _HubSpot').output.value[0].source_config.authorization",
+																	"type": "Expression"
+																},
+																"web_auth_token": {
+																	"value": "@activity('Filter_JSON _HubSpot').output.value[0].source_config.auth_token",
+																	"type": "Expression"
+																},
+																"server": {
+																	"value": "@activity('Filter_JSON _HubSpot').output.value[0].source_config.server",
+																	"type": "Expression"
+																},
+																"database": {
+																	"value": "@activity('Filter_JSON _HubSpot').output.value[0].source_config.database",
+																	"type": "Expression"
+																},
+																"username": {
+																	"value": "@activity('Filter_JSON _HubSpot').output.value[0].source_config.username",
+																	"type": "Expression"
+																},
+																"secretname": {
+																	"value": "@activity('Filter_JSON _HubSpot').output.value[0].source_config.secretname",
+																	"type": "Expression"
+																}
+															}
+														}
+													}
+												]
+											}
+										]
+									}
+								},
+								{
+									"name": "variable_lookup _excel",
+									"type": "SetVariable",
+									"dependsOn": [],
+									"policy": {
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "lookup_value_excel",
+										"value": {
+											"value": "@concat(item().source_object_name, '-' , item().load_type)",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "Filter_Excel_HubSpot",
+						"type": "Filter",
+						"dependsOn": [
+							{
+								"activity": "Lookup - DIaaS Metadata_Excel",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('Lookup - DIaaS Metadata_Excel').output.value",
+								"type": "Expression"
+							},
+							"condition": {
+								"value": "@equals(item().source_name,'HubSpot')",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"variables": {
+					"filterCondition": {
+						"type": "String"
+					},
+					"lookup_value_excel": {
+						"type": "String"
+					}
+				},
+				"folder": {
+					"name": "02_SRC_TO_DESTINATION/02_HUBSPOT_TO_AZURE_SQL_DB"
+				},
+				"annotations": [],
+				"lastPublishTime": "2024-08-08T13:07:34Z"
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/DS_SRC_CONFIG_JSON')]",
+				"[concat(variables('factoryId'), '/datasets/DS_BLOB_TO_COLUMNS')]",
+				"[concat(variables('factoryId'), '/pipelines/PL_HS_FL_TO_AZURE_SQL')]",
+				"[concat(variables('factoryId'), '/pipelines/PL_HS_INC_LOAD_TO_AZURE_SQL')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/DS_SRC_CONFIG_JSON')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "[parameters('LS_BLOB_HUBSPOT')]",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobStorageLocation",
+						"fileName": "240821_source_config.json",
+						"container": "diaas-metadata"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/DS_BLOB_TO_COLUMNS')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "[parameters('LS_BLOB_HUBSPOT')]",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobStorageLocation",
+						"fileName": "240729 DIaaS Metadata_INC_LOAD_TEST_FILE.csv",
+						"container": "diaas-metadata"
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\\",
+					"firstRowAsHeader": true,
+					"quoteChar": "\""
+				},
+				"schema": []
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PL_HS_FL_TO_AZURE_SQL')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "If_Con_ HS_FULL_LOAD",
+						"description": "This conditional statement checks the source object name from the lookup and executes the activities.",
+						"type": "IfCondition",
+						"dependsOn": [],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@equals(pipeline().parameters.source_object_name, 'owners')\n",
+								"type": "Expression"
+							},
+							"ifFalseActivities": [
+								{
+									"name": "CD_Hubspot_REST_to_SQL_Other_Obj",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.00:30:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "RestSource",
+											"additionalColumns": [
+												{
+													"name": "loaded_at",
+													"value": {
+														"value": "@formatDateTime(utcnow(),'yyyy-MM-ddTHH:mm:ss.fffZ')",
+														"type": "Expression"
+													}
+												},
+												{
+													"name": "loaded_from",
+													"value": {
+														"value": "HubSpot",
+														"type": "Expression"
+													}
+												}
+											],
+											"httpRequestTimeout": "00:01:40",
+											"requestInterval": "00.00:00:00.010",
+											"requestMethod": "GET",
+											"paginationRules": {
+												"AbsoluteUrl": "$.paging.next.link"
+											}
+										},
+										"sink": {
+											"type": "AzureSqlSink",
+											"preCopyScript": {
+												"value": "@concat('DROP TABLE IF EXISTS ',pipeline().parameters.staging_schema,'.',pipeline().parameters.staging_table)",
+												"type": "Expression"
+											},
+											"writeBehavior": "insert",
+											"sqlWriterUseTableLock": false,
+											"tableOption": "autoCreate",
+											"disableMetricsCollection": false
+										},
+										"enableStaging": false,
+										"translator": {
+											"type": "TabularTranslator",
+											"mappings": [
+												{
+													"source": {
+														"path": "[['id']"
+													},
+													"sink": {
+														"name": "id",
+														"type": "String"
+													}
+												},
+												{
+													"source": {
+														"path": "[['properties']"
+													},
+													"sink": {
+														"name": "properties",
+														"type": "String"
+													}
+												},
+												{
+													"source": {
+														"path": "[['createdAt']"
+													},
+													"sink": {
+														"name": "created_at",
+														"type": "DateTimeOffset"
+													}
+												},
+												{
+													"source": {
+														"path": "[['updatedAt']"
+													},
+													"sink": {
+														"name": "updated_at",
+														"type": "DateTimeOffset"
+													}
+												},
+												{
+													"source": {
+														"path": "[['archived']"
+													},
+													"sink": {
+														"name": "archived",
+														"type": "Boolean"
+													}
+												},
+												{
+													"source": {
+														"path": "$['loaded_from']"
+													},
+													"sink": {
+														"name": "loaded_from",
+														"type": "String"
+													}
+												},
+												{
+													"source": {
+														"path": "$['loaded_at']"
+													},
+													"sink": {
+														"name": "loaded_at",
+														"type": "DateTimeOffset"
+													}
+												}
+											],
+											"collectionReference": "$['results']",
+											"mapComplexValuesToString": true
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_HS_REST_API",
+											"type": "DatasetReference",
+											"parameters": {
+												"url": {
+													"value": "@pipeline().parameters.relative_url",
+													"type": "Expression"
+												},
+												"kvtoken": {
+													"value": "@pipeline().parameters.kv_authorization",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_AZURE_SQL",
+											"type": "DatasetReference",
+											"parameters": {
+												"table_schema": {
+													"value": "@pipeline().parameters.staging_schema",
+													"type": "Expression"
+												},
+												"table_name": {
+													"value": "@pipeline().parameters.staging_table",
+													"type": "Expression"
+												},
+												"server": {
+													"value": "@pipeline().parameters.server",
+													"type": "Expression"
+												},
+												"database": {
+													"value": "@pipeline().parameters.database",
+													"type": "Expression"
+												},
+												"username": {
+													"value": "@pipeline().parameters.username",
+													"type": "Expression"
+												},
+												"secretname": {
+													"value": "@pipeline().parameters.secretname",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "Flattening_JSON_test_other_source_obj",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "CD_Hubspot_REST_to_SQL_Other_Obj",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[[dbo].[sp_flattening_hs_test]",
+										"storedProcedureParameters": {
+											"input_schema": {
+												"value": {
+													"value": "@pipeline().parameters.staging_schema",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"input_table": {
+												"value": {
+													"value": "@pipeline().parameters.staging_table",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"json_column": {
+												"value": "properties",
+												"type": "String"
+											},
+											"load_type": {
+												"value": {
+													"value": "@pipeline().parameters.load_type",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"output_schema": {
+												"value": {
+													"value": "@pipeline().parameters.raw_schema",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"output_table": {
+												"value": {
+													"value": "@pipeline().parameters.raw_table",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"source_object_name": {
+												"value": {
+													"value": "@pipeline().parameters.source_object_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "[parameters('LS_AZURE_SQL')]",
+										"type": "LinkedServiceReference",
+										"parameters": {
+											"server": {
+												"value": "@pipeline().parameters.server",
+												"type": "Expression"
+											},
+											"database": {
+												"value": "@pipeline().parameters.database",
+												"type": "Expression"
+											},
+											"username": {
+												"value": "@pipeline().parameters.username",
+												"type": "Expression"
+											},
+											"secretname": {
+												"value": "@pipeline().parameters.secretname",
+												"type": "Expression"
+											}
+										}
+									}
+								}
+							],
+							"ifTrueActivities": [
+								{
+									"name": "CD_HubSpot_REST_to_SQL_OWNERS_obj",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.00:30:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "RestSource",
+											"additionalColumns": [
+												{
+													"name": "loaded_at",
+													"value": {
+														"value": "@formatDateTime(utcnow(),'yyyy-MM-ddTHH:mm:ss.fffZ')",
+														"type": "Expression"
+													}
+												},
+												{
+													"name": "loaded_from",
+													"value": {
+														"value": "HubSpot",
+														"type": "Expression"
+													}
+												}
+											],
+											"httpRequestTimeout": "00:01:40",
+											"requestInterval": "00.00:00:00.010",
+											"requestMethod": "GET",
+											"paginationRules": {
+												"AbsoluteUrl": "$.paging.next.link"
+											}
+										},
+										"sink": {
+											"type": "AzureSqlSink",
+											"preCopyScript": {
+												"value": "@concat('DROP TABLE IF EXISTS ',pipeline().parameters.staging_schema,'.',pipeline().parameters.staging_table)",
+												"type": "Expression"
+											},
+											"writeBehavior": "insert",
+											"sqlWriterUseTableLock": false,
+											"tableOption": "autoCreate",
+											"disableMetricsCollection": false
+										},
+										"enableStaging": false,
+										"translator": {
+											"type": "TabularTranslator",
+											"mappings": [
+												{
+													"source": {
+														"path": "$['results']"
+													},
+													"sink": {
+														"name": "results",
+														"type": "String"
+													}
+												},
+												{
+													"source": {
+														"path": "$['loaded_from']"
+													},
+													"sink": {
+														"name": "loaded_from",
+														"type": "String"
+													}
+												},
+												{
+													"source": {
+														"path": "$['loaded_at']"
+													},
+													"sink": {
+														"name": "loaded_at",
+														"type": "DateTimeOffset"
+													}
+												}
+											],
+											"collectionReference": "",
+											"mapComplexValuesToString": true
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_HS_REST_API",
+											"type": "DatasetReference",
+											"parameters": {
+												"url": {
+													"value": "@pipeline().parameters.relative_url",
+													"type": "Expression"
+												},
+												"kvtoken": {
+													"value": "@pipeline().parameters.kv_authorization",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_AZURE_SQL",
+											"type": "DatasetReference",
+											"parameters": {
+												"table_schema": {
+													"value": "@pipeline().parameters.staging_schema",
+													"type": "Expression"
+												},
+												"table_name": {
+													"value": "@pipeline().parameters.staging_table",
+													"type": "Expression"
+												},
+												"server": {
+													"value": "@pipeline().parameters.server",
+													"type": "Expression"
+												},
+												"database": {
+													"value": "@pipeline().parameters.database",
+													"type": "Expression"
+												},
+												"username": {
+													"value": "@pipeline().parameters.username",
+													"type": "Expression"
+												},
+												"secretname": {
+													"value": "@pipeline().parameters.secretname",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "Flattening_JSON_test_owners_source_obj",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "CD_HubSpot_REST_to_SQL_OWNERS_obj",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[[dbo].[sp_flattening_hs_test]",
+										"storedProcedureParameters": {
+											"input_schema": {
+												"value": {
+													"value": "@pipeline().parameters.staging_schema",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"input_table": {
+												"value": {
+													"value": "@pipeline().parameters.staging_table",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"json_column": {
+												"value": null,
+												"type": "String"
+											},
+											"load_type": {
+												"value": {
+													"value": "@pipeline().parameters.load_type",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"output_schema": {
+												"value": {
+													"value": "@pipeline().parameters.raw_schema",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"output_table": {
+												"value": {
+													"value": "@pipeline().parameters.raw_table",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"source_object_name": {
+												"value": {
+													"value": "@pipeline().parameters.source_object_name",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "[parameters('LS_AZURE_SQL')]",
+										"type": "LinkedServiceReference",
+										"parameters": {
+											"server": {
+												"value": "@pipeline().parameters.server",
+												"type": "Expression"
+											},
+											"database": {
+												"value": "@pipeline().parameters.database",
+												"type": "Expression"
+											},
+											"username": {
+												"value": "@pipeline().parameters.username",
+												"type": "Expression"
+											},
+											"secretname": {
+												"value": "@pipeline().parameters.secretname",
+												"type": "Expression"
+											}
+										}
+									}
+								}
+							]
+						}
+					}
+				],
+				"parameters": {
+					"relative_url": {
+						"type": "string"
+					},
+					"staging_schema": {
+						"type": "string"
+					},
+					"staging_table": {
+						"type": "string"
+					},
+					"load_type": {
+						"type": "string"
+					},
+					"raw_schema": {
+						"type": "string"
+					},
+					"raw_table": {
+						"type": "string"
+					},
+					"source_object_name": {
+						"type": "string"
+					},
+					"kv_authorization": {
+						"type": "string"
+					},
+					"server": {
+						"type": "string"
+					},
+					"database": {
+						"type": "string"
+					},
+					"username": {
+						"type": "string"
+					},
+					"secretname": {
+						"type": "string"
+					}
+				},
+				"folder": {
+					"name": "02_SRC_TO_DESTINATION/02_HUBSPOT_TO_AZURE_SQL_DB"
+				},
+				"annotations": [],
+				"lastPublishTime": "2024-08-08T13:07:34Z"
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/DS_HS_REST_API')]",
+				"[concat(variables('factoryId'), '/datasets/DS_AZURE_SQL')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PL_HS_INC_LOAD_TO_AZURE_SQL')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "Lookup Last ModifiedAt",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "AzureSqlSource",
+								"sqlReaderQuery": {
+									"value": "@concat('SELECT MAX(',pipeline().parameters.IL_field,') AS max_date FROM ', pipeline().parameters.raw_schema, '.', pipeline().parameters.raw_table)\n",
+									"type": "Expression"
+								},
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "DS_AZURE_SQL",
+								"type": "DatasetReference",
+								"parameters": {
+									"table_schema": {
+										"value": "@pipeline().parameters.raw_schema",
+										"type": "Expression"
+									},
+									"table_name": {
+										"value": "@pipeline().parameters.raw_table",
+										"type": "Expression"
+									},
+									"server": {
+										"value": "@pipeline().parameters.server",
+										"type": "Expression"
+									},
+									"database": {
+										"value": "@pipeline().parameters.database",
+										"type": "Expression"
+									},
+									"username": {
+										"value": "@pipeline().parameters.username",
+										"type": "Expression"
+									},
+									"secretname": {
+										"value": "@pipeline().parameters.secretname",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					},
+					{
+						"name": "select max_date from raw table",
+						"type": "SetVariable",
+						"dependsOn": [
+							{
+								"activity": "Lookup Last ModifiedAt",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "raw_max_date",
+							"value": {
+								"value": "@replace(string(mul(div(sub(ticks(activity('Lookup Last ModifiedAt').output.firstRow.max_date), ticks('1970-01-01')), 10000000), 1000)), '\\n', '')\n",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "Until the Companies copied",
+						"description": "It is to copy all the Companies from the REST API to the Blob when there is more number of paging.",
+						"type": "Until",
+						"dependsOn": [
+							{
+								"activity": "column_names variable",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@equals('break',variables('no_more_record'))",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "Web",
+									"description": "to check if we have a paging key in the JSON output. so that we can assign it to the 'after' variable",
+									"type": "WebActivity",
+									"dependsOn": [
+										{
+											"activity": "Set value to page variable",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"method": "POST",
+										"headers": {
+											"content-type": "application/json",
+											"Authorization": {
+												"value": "@pipeline().parameters.web_auth_token",
+												"type": "Expression"
+											}
+										},
+										"url": {
+											"value": "@concat('https://api.hubapi.com/crm/v3/objects/', pipeline().parameters.raw_table,'/search?limit=100')\n",
+											"type": "Expression"
+										},
+										"body": {
+											"value": "{\n    \"filterGroups\": [\n      {\n        \"filters\": [\n          {\n            \"propertyName\": \"hs_lastmodifieddate\",\n            \"value\": \"@{variables('raw_max_date')}\",\n            \"operator\": \"GT\"\n          }\n        ]\n      }\n    ],\n    \"properties\": [@{concat('\"', variables('properties'), '\"')}],\n    \"limit\": 100,\n    \"after\": \"@{variables('after_sql_variable')}\"\n    \n  }",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "If Condition to check Paging",
+									"description": "'If condition' to validate whether the URL has \"paging\" key, if it contains then iterates or else set the variable 'more_records' variable to 'break'",
+									"type": "IfCondition",
+									"dependsOn": [
+										{
+											"activity": "Web",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"expression": {
+											"value": "@contains(activity('Web').output,'paging')",
+											"type": "Expression"
+										},
+										"ifFalseActivities": [
+											{
+												"name": "Set value of more_records variable",
+												"description": "Sets the value of 'more_records' variable  to 'break', if there is no paging key in the web activity",
+												"type": "SetVariable",
+												"dependsOn": [],
+												"policy": {
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "no_more_record",
+													"value": "break"
+												}
+											}
+										],
+										"ifTrueActivities": [
+											{
+												"name": "Set value to after",
+												"description": "It is set the value to the variable \"after\" to iterate next page",
+												"type": "SetVariable",
+												"dependsOn": [],
+												"policy": {
+													"secureOutput": false,
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "after_sql_variable",
+													"value": {
+														"value": "@activity('Web').output.paging.next.after",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								},
+								{
+									"name": "Set value to page variable",
+									"description": "taking value from temp_naming variable",
+									"type": "SetVariable",
+									"dependsOn": [],
+									"policy": {
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "page",
+										"value": {
+											"value": "@variables('raw_max_date')",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "Ingest Data from HubSpot - IL",
+									"type": "Copy",
+									"dependsOn": [
+										{
+											"activity": "Set value to page variable",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.00:30:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "RestSource",
+											"additionalColumns": [
+												{
+													"name": "loaded_at",
+													"value": {
+														"value": "@formatDateTime(utcnow(),'yyyy-MM-ddTHH:mm:ss.fffZ')",
+														"type": "Expression"
+													}
+												},
+												{
+													"name": "loaded_from",
+													"value": {
+														"value": "HubSpot",
+														"type": "Expression"
+													}
+												}
+											],
+											"httpRequestTimeout": "00:01:40",
+											"requestInterval": "00.00:00:00.010",
+											"requestMethod": "POST",
+											"requestBody": {
+												"value": "{\n    \"filterGroups\": [\n      {\n        \"filters\": [\n          {\n            \"propertyName\": \"hs_lastmodifieddate\",\n            \"value\": \"@{variables('raw_max_date')}\",\n            \"operator\": \"GT\"\n          }\n        ]\n      }\n    ],\n    \"properties\": [@{concat('\"', variables('properties'), '\"')}],\n    \"limit\": 100,\n    \"after\": \"@{variables('after_sql_variable')}\"\n  }",
+												"type": "Expression"
+											},
+											"additionalHeaders": {
+												"content-type": "application/json"
+											},
+											"paginationRules": {
+												"AbsoluteUrl": "$.paging.next.link"
+											}
+										},
+										"sink": {
+											"type": "AzureSqlSink",
+											"preCopyScript": {
+												"value": "@concat('DROP TABLE IF EXISTS ',pipeline().parameters.staging_schema,'.',pipeline().parameters.staging_table)",
+												"type": "Expression"
+											},
+											"writeBehavior": "insert",
+											"sqlWriterUseTableLock": false,
+											"tableOption": "autoCreate",
+											"disableMetricsCollection": false
+										},
+										"enableStaging": false,
+										"translator": {
+											"type": "TabularTranslator",
+											"mappings": [
+												{
+													"source": {
+														"path": "[['id']"
+													},
+													"sink": {
+														"name": "id",
+														"type": "String"
+													}
+												},
+												{
+													"source": {
+														"path": "[['properties']"
+													},
+													"sink": {
+														"name": "properties",
+														"type": "String"
+													}
+												},
+												{
+													"source": {
+														"path": "[['createdAt']"
+													},
+													"sink": {
+														"name": "created_at",
+														"type": "DateTimeOffset"
+													}
+												},
+												{
+													"source": {
+														"path": "[['updatedAt']"
+													},
+													"sink": {
+														"name": "updated_at",
+														"type": "DateTimeOffset"
+													}
+												},
+												{
+													"source": {
+														"path": "[['archived']"
+													},
+													"sink": {
+														"name": "archived",
+														"type": "Boolean"
+													}
+												},
+												{
+													"source": {
+														"path": "$['loaded_from']"
+													},
+													"sink": {
+														"name": "loaded_from",
+														"type": "String"
+													}
+												},
+												{
+													"source": {
+														"path": "$['loaded_at']"
+													},
+													"sink": {
+														"name": "loaded_at",
+														"type": "DateTimeOffset"
+													}
+												}
+											],
+											"collectionReference": "$['results']",
+											"mapComplexValuesToString": true
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "DS_HS_REST_API",
+											"type": "DatasetReference",
+											"parameters": {
+												"url": {
+													"value": "@concat('https://api.hubapi.com/crm/v3/objects/', pipeline().parameters.raw_table,'/search?limit=100')\n",
+													"type": "Expression"
+												},
+												"kvtoken": {
+													"value": "@pipeline().parameters.kv_authorization",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "DS_AZURE_SQL",
+											"type": "DatasetReference",
+											"parameters": {
+												"table_schema": {
+													"value": "@pipeline().parameters.staging_schema",
+													"type": "Expression"
+												},
+												"table_name": {
+													"value": "@pipeline().parameters.staging_table",
+													"type": "Expression"
+												},
+												"server": {
+													"value": "@pipeline().parameters.server",
+													"type": "Expression"
+												},
+												"database": {
+													"value": "@pipeline().parameters.database",
+													"type": "Expression"
+												},
+												"username": {
+													"value": "@pipeline().parameters.username",
+													"type": "Expression"
+												},
+												"secretname": {
+													"value": "@pipeline().parameters.secretname",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								},
+								{
+									"name": "Trigger_SP_IL_TO_STG_TABLE",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [
+										{
+											"activity": "Ingest Data from HubSpot - IL",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[[dbo].[sp_flattening_hs_test]",
+										"storedProcedureParameters": {
+											"input_schema": {
+												"value": {
+													"value": "@pipeline().parameters.staging_schema",
+													"type": "Expression"
+												}
+											},
+											"input_table": {
+												"value": {
+													"value": "@pipeline().parameters.staging_table",
+													"type": "Expression"
+												}
+											},
+											"json_column": {
+												"value": "properties"
+											},
+											"load_type": {
+												"value": {
+													"value": "@pipeline().parameters.load_type",
+													"type": "Expression"
+												}
+											},
+											"output_schema": {
+												"value": {
+													"value": "@pipeline().parameters.raw_schema",
+													"type": "Expression"
+												}
+											},
+											"output_table": {
+												"value": {
+													"value": "@pipeline().parameters.raw_table",
+													"type": "Expression"
+												}
+											},
+											"source_object_name": {
+												"value": {
+													"value": "@pipeline().parameters.source_object_name",
+													"type": "Expression"
+												}
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "[parameters('LS_AZURE_SQL')]",
+										"type": "LinkedServiceReference",
+										"parameters": {
+											"server": {
+												"value": "@pipeline().parameters.server",
+												"type": "Expression"
+											},
+											"database": {
+												"value": "@pipeline().parameters.database",
+												"type": "Expression"
+											},
+											"username": {
+												"value": "@pipeline().parameters.username",
+												"type": "Expression"
+											},
+											"secretname": {
+												"value": "@pipeline().parameters.secretname",
+												"type": "Expression"
+											}
+										}
+									}
+								}
+							],
+							"timeout": "7.00:00:00"
+						}
+					},
+					{
+						"name": "column_names variable",
+						"description": "extracts the properties mentioned in relative url ",
+						"type": "SetVariable",
+						"dependsOn": [
+							{
+								"activity": "select max_date from raw table",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"variableName": "properties",
+							"value": {
+								"value": "@pipeline().parameters.relative_url",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"parameters": {
+					"raw_schema": {
+						"type": "string"
+					},
+					"raw_table": {
+						"type": "string"
+					},
+					"IL_field": {
+						"type": "string"
+					},
+					"relative_url": {
+						"type": "string"
+					},
+					"staging_schema": {
+						"type": "string"
+					},
+					"staging_table": {
+						"type": "string"
+					},
+					"load_type": {
+						"type": "string"
+					},
+					"sink_type": {
+						"type": "string"
+					},
+					"source_object_name": {
+						"type": "string"
+					},
+					"kv_authorization": {
+						"type": "string"
+					},
+					"web_auth_token": {
+						"type": "string"
+					},
+					"server": {
+						"type": "string"
+					},
+					"database": {
+						"type": "string"
+					},
+					"username": {
+						"type": "string"
+					},
+					"secretname": {
+						"type": "string"
+					}
+				},
+				"variables": {
+					"page": {
+						"type": "String"
+					},
+					"last_date": {
+						"type": "String"
+					},
+					"properties": {
+						"type": "String"
+					},
+					"test_prop": {
+						"type": "String"
+					},
+					"is_more_record": {
+						"type": "String"
+					},
+					"no_more_record": {
+						"type": "String"
+					},
+					"after_variable": {
+						"type": "String"
+					},
+					"after_sql_variable": {
+						"type": "String"
+					},
+					"raw_max_date": {
+						"type": "String"
+					}
+				},
+				"folder": {
+					"name": "02_SRC_TO_DESTINATION/02_HUBSPOT_TO_AZURE_SQL_DB"
+				},
+				"annotations": [],
+				"lastPublishTime": "2024-08-08T13:07:34Z"
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/DS_AZURE_SQL')]",
+				"[concat(variables('factoryId'), '/datasets/DS_HS_REST_API')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/DS_AZURE_SQL')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "[parameters('LS_AZURE_SQL')]",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"server": {
+							"value": "@dataset().server",
+							"type": "Expression"
+						},
+						"database": {
+							"value": "@dataset().database",
+							"type": "Expression"
+						},
+						"username": {
+							"value": "@dataset().username",
+							"type": "Expression"
+						},
+						"secretname": {
+							"value": "@dataset().secretname",
+							"type": "Expression"
+						}
+					}
+				},
+				"parameters": {
+					"table_schema": {
+						"type": "string"
+					},
+					"table_name": {
+						"type": "string"
+					},
+					"server": {
+						"type": "string"
+					},
+					"database": {
+						"type": "string"
+					},
+					"username": {
+						"type": "string"
+					},
+					"secretname": {
+						"type": "string"
+					}
+				},
+				"folder": {
+					"name": "03_AZURE_SQL"
+				},
+				"annotations": [],
+				"type": "AzureSqlTable",
+				"schema": [],
+				"typeProperties": {
+					"schema": {
+						"value": "@dataset().table_schema",
+						"type": "Expression"
+					},
+					"table": {
+						"value": "@dataset().table_name",
+						"type": "Expression"
+					}
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/DS_HS_REST_API')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Connect the REST API",
+				"linkedServiceName": {
+					"referenceName": "[parameters('LS_REST_HUBSPOT_ANONYMOUS')]",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"kvtoken": {
+							"value": "@dataset().kvtoken",
+							"type": "Expression"
+						}
+					}
+				},
+				"parameters": {
+					"url": {
+						"type": "string",
+						"defaultValue": " "
+					},
+					"kvtoken": {
+						"type": "string"
+					}
+				},
+				"folder": {
+					"name": "02_REST"
+				},
+				"annotations": [],
+				"type": "RestResource",
+				"typeProperties": {
+					"relativeUrl": {
+						"value": "@dataset().url",
+						"type": "Expression"
+					}
+				},
+				"schema": []
+			},
+			"dependsOn": []
+		}
+	]
+}
